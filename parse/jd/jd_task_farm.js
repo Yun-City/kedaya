@@ -1,4 +1,12 @@
 const Template = require('../../template');
+const got = require('got');
+const api = got.extend({
+    retry: { limit: 0 },
+});
+const moment = require('moment');
+let xkProxy = null;
+let xkProxyCount = 0;
+require("global-agent/bootstrap");
 
 class Main extends Template {
     constructor() {
@@ -13,10 +21,10 @@ class Main extends Template {
 #doubleCard=1             # 双倍水滴卡
 #fastCard=1                   # 快速浇水卡
 #beanCard=1                # 水滴换豆卡
-#stock=200                    # 保留水滴数
+stock=100                    # 保留水滴数
 #tenWater=1                 # 只做10次浇水的任务,后续不浇水
 cache=1                          # 缓存助力code
-#helpWaitting=20000     # 助力等待时间20s,默认6s
+helpWaitting=1000     # 助力等待时间20s,默认6s
 #helpRandom=1            # 随机助力
 `
     }
@@ -27,6 +35,7 @@ cache=1                          # 缓存助力code
             type: 'app',
         })
         console.log("正在获取助力码")
+        
         try {
             let txt = this.modules.fs.readFileSync(`${this.dirname}/invite/jd_task_farm.json`).toString()
             if (txt.includes("shareCode")) {
@@ -47,6 +56,18 @@ cache=1                          # 缓存助力code
         // )
         // console.log(a.result||a)
         // return
+        
+        if (!xkProxy || moment(xkProxy['expire_time']) < moment(new moment()).add(3, 'm')) {
+                await getProxy();
+            }
+        
+        if (xkProxy && moment(xkProxy['expire_time']) > moment()) {
+        global.GLOBAL_AGENT.HTTPS_PROXY = `http://${xkProxy.ip}:${xkProxy.port}`;
+        console.log(`代理成功：${xkProxy.ip}:${xkProxy.port}\n过期时间：${xkProxy['expire_time']}`);
+    }    
+        
+        
+        
         let init = await this.algo.curl({
                 'url': 'https://api.m.jd.com/client.action?functionId=initForFarm',
                 'form': `body={"version":16,"channel":3}&appid=wh5&client=apple&clientVersion=10.2.4`,
@@ -57,6 +78,7 @@ cache=1                          # 缓存助力code
                 }
             }
         )
+               
         if (init.code == '3') {
             console.log(`错误了哟 ${init.msg}`)
             this.notices('账号过期了', p.user)
@@ -541,7 +563,7 @@ cache=1                          # 缓存助力code
                     console.log(`您当前助力次数已耗尽，跳出助力`);
                     break
                 }
-                let helpWaitting = parseInt(this.profile.helpWaitting || 6000)
+                let helpWaitting = parseInt(this.profile.helpWaitting || 1000)
                 await this.wait(helpWaitting)
             }
             else if (s.code == "403") {
@@ -614,7 +636,7 @@ cache=1                          # 缓存助力code
                     cookie
                 }
             )
-            await this.wait(2000)
+            await this.wait(1000)
             console.log("抽奖:", this.dumps(s))
         }
         for (let i of Array(4)) {
@@ -666,7 +688,7 @@ cache=1                          # 缓存助力code
                     if (this.haskey(doubleCard, 'addWater')) {
                         console.log("双倍水滴:", doubleCard.addWater)
                         amount += doubleCard.addWater
-                        await this.wait(2000)
+                        await this.wait(1000)
                     }
                     else {
                         console.log("加倍失败")
@@ -684,7 +706,7 @@ cache=1                          # 缓存助力code
                     if (d.beanCount) {
                         amount = amount - d.useWater
                         console.log(p.user, `水滴换豆: ${d.beanCount}`)
-                        await this.wait(2000)
+                        await this.wait(1000)
                     }
                     else {
                         break
@@ -701,7 +723,7 @@ cache=1                          # 缓存助力code
                     )
                     if (this.haskey(signCard, 'signDay')) {
                         console.log("正在加签:", signCard.signDay)
-                        await this.wait(2000)
+                        await this.wait(1000)
                     }
                     else {
                         console.log("加签失败")
@@ -723,7 +745,7 @@ cache=1                          # 缓存助力code
         let stock = parseInt(this.profile.stock || 110)
         if (!this.profile.tenWater) {
             if (myCard.fastCard && amount - 100>stock) {
-                await this.wait(2000)
+                await this.wait(1000)
                 for (let i = 0; i<(amount / 100); i++) {
                     if (amount - 100<stock) {
                         break
@@ -736,7 +758,7 @@ cache=1                          # 缓存助力code
                     if (this.haskey(fastCard, 'waterEnergy')) {
                         console.log("快速浇水:", fastCard.waterEnergy)
                         amount = amount - fastCard.waterEnergy
-                        await this.wait(2000)
+                        await this.wait(1000)
                     }
                     else {
                         console.log("快速浇水失败")
@@ -744,7 +766,7 @@ cache=1                          # 缓存助力code
                     }
                 }
             }
-            await this.wait(2000)
+            await this.wait(1000)
             for (let i = 0; i<(amount - stock) / 10; i++) {
                 for (let j = 0; j<3; j++) {
                     var js = await this.algo.curl({
@@ -794,6 +816,39 @@ cache=1                          # 缓存助力code
                 })
             }
         }
+    }
+}
+
+async function getProxy() {
+    if (xkProxyCount > 10) {
+        console.log("获取代理次数超过10次,停止获取。");
+        return;
+    }
+    xkProxyCount++;
+    console.log("开始获取代理");
+    var result = null;
+    try {
+        var options = {
+            'method': 'get',
+            'url': 'http://zltiqu.pyhttp.taolop.com/getip?count=1&neek=54564&type=2&yys=0&port=1&sb=&mr=2&sep=0&ts=1&ys=1&cs=1&time=4',
+            'headers': {
+                'Content-Type': 'application/json'
+            }
+        };
+        var response = await api(options);
+        console.log("获取代理IP结果：" + response.body);
+        result = JSON.parse(response.body);
+    } catch (e) {
+        console.log("代理获取异常，尝试重新获取。");
+        await $.wait(2 * 1000);
+        await getProxy();
+    }
+    if (result && result.code == "0" && result.data) {
+        xkProxy = result.data[0];
+    } else if (result.code == "111") {
+        console.log(result.msg)
+        await $.wait(2 * 1000);
+        await getProxy();
     }
 }
 
